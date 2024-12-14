@@ -1,234 +1,174 @@
 // API sozlamalari
-const API_KEY = '2b64f57ce6ad4b679ce151321241312';
-const BASE_URL = 'https://api.weatherapi.com/v1';
+const API_KEY = '8ca7934bf466570063357080';
+const BASE_URL = 'https://v6.exchangerate-api.com/v6';
 
-// DOM elementlari
-const searchForm = document.getElementById('searchForm');
-const cityInput = document.getElementById('cityInput');
-const loadingSpinner = document.getElementById('loadingSpinner');
-const errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
-const errorMessage = document.getElementById('errorMessage');
+// HTML elementlarni tanlab olish
+const amountInput = document.getElementById('amount');
+const fromSelect = document.getElementById('fromCurrency');
+const toSelect = document.getElementById('toCurrency');
+const resultDiv = document.getElementById('result');
+const lastUpdatedDiv = document.getElementById('lastUpdated');
+const swapBtn = document.getElementById('swapBtn');
+const ctx = document.getElementById('rateChart').getContext('2d');
 
-// Event Listeners
-searchForm.addEventListener('submit', handleSearch);
-document.addEventListener('DOMContentLoaded', () => {
-    getLocationWeather();
+// Grafik sozlamalari va yaratish
+let rateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [], // Sana belgilari
+        datasets: [{
+            label: 'Valyuta kursi',
+            data: [], // Kurs ma'lumotlari
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+            borderWidth: 2,
+            tension: 0.1,
+            fill: true
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: false,
+                ticks: {
+                    // Raqamlarni formatlash
+                    callback: function(value) {
+                        return value.toFixed(2);
+                    }
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        },
+        interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+        }
+    }
 });
 
-// Qidiruv funksiyasi
-async function handleSearch(e) {
-    e.preventDefault();
-    const city = cityInput.value.trim();
-    if (city) {
-        await getWeatherData(city);
-        cityInput.value = '';
-    }
-}
+// Hodisalarni tinglash
+amountInput.addEventListener('input', convertCurrency);
+fromSelect.addEventListener('change', handleCurrencyChange);
+toSelect.addEventListener('change', handleCurrencyChange);
+swapBtn.addEventListener('click', swapCurrencies);
 
-// Asosiy ob-havo ma'lumotlarini olish
-async function getWeatherData(city) {
+// Valyutani konvertatsiya qilish
+async function convertCurrency() {
     try {
-        showLoading();
-        
-        // Joriy ob-havo va 5 kunlik prognoz ma'lumotlarini olish
-        const response = await fetch(
-            `${BASE_URL}/forecast.json?key=${API_KEY}&q=${city}&days=5&lang=uz&aqi=no`
-        );
-        
-        if (!response.ok) {
-            throw new Error('Shahar topilmadi yoki API xatolik yuz berdi');
-        }
-        
+        const amount = amountInput.value;
+        const from = fromSelect.value;
+        const to = toSelect.value;
+
+        // Yuklanish holatini qo'shish
+        resultDiv.classList.add('loading');
+
+        // API dan ma'lumotlarni olish
+        const response = await fetch(`${BASE_URL}/${API_KEY}/latest/${from}`);
         const data = await response.json();
-        updateUI(data);
-        saveToLocalStorage(city);
-        
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        hideLoading();
-    }
-}
 
-// UI ni yangilash
-function updateUI(data) {
-    updateCurrentWeather(data);
-    updateForecast(data);
-    addFadeInAnimation();
-}
-
-// Joriy ob-havo ma'lumotlarini yangilash
-function updateCurrentWeather(data) {
-    document.getElementById('cityName').textContent = `${data.location.name}, ${data.location.country}`;
-    document.getElementById('temperature').textContent = `${Math.round(data.current.temp_c)}°C`;
-    document.getElementById('weatherDescription').textContent = capitalizeFirstLetter(data.current.condition.text);
-    document.getElementById('humidity').textContent = `${data.current.humidity}%`;
-    document.getElementById('windSpeed').textContent = `${data.current.wind_kph} km/s`;
-    document.getElementById('pressure').textContent = `${data.current.pressure_mb} hPa`;
-    
-    updateWeatherIcon(data.current.condition.code);
-}
-
-// Ob-havo ikonkasini yangilash
-function updateWeatherIcon(conditionCode) {
-    const icon = document.getElementById('weatherIcon');
-    const timeOfDay = getDayOrNight();
-    
-    // WeatherAPI condition codes ga asoslangan ikonkalar
-    const iconMap = {
-        1000: 'day-sunny',        // Clear
-        1003: 'day-cloudy',       // Partly cloudy
-        1006: 'cloudy',           // Cloudy
-        1009: 'day-cloudy-high',  // Overcast
-        1030: 'day-fog',          // Mist
-        1063: 'day-rain',         // Patchy rain
-        1066: 'day-snow',         // Patchy snow
-        1087: 'day-thunderstorm', // Thundery outbreaks
-        1183: 'day-rain',         // Light rain
-        1189: 'rain',             // Moderate rain
-        1195: 'rain',             // Heavy rain
-        1273: 'thunderstorm',     // Patchy light rain with thunder
-        1279: 'snow-thunderstorm' // Patchy light snow with thunder
-    };
-    
-    let iconName = iconMap[conditionCode] || 'day-sunny'; // default icon
-    
-    // Agar tun bo'lsa va ikonka kunduzi uchun bo'lsa, uni tunga o'zgartirish
-    if (timeOfDay === 'night' && iconName.startsWith('day-')) {
-        iconName = iconName.replace('day-', 'night-');
-    }
-    
-    icon.className = `wi wi-${iconName}`;
-}
-
-// 5 kunlik prognozni yangilash
-function updateForecast(data) {
-    const forecastContainer = document.getElementById('forecastContainer');
-    forecastContainer.innerHTML = '';
-    
-    data.forecast.forecastday.forEach((day, index) => {
-        if (index > 0) { // Bugungi kunni ko'rsatmaslik uchun
-            const card = createForecastCard(day);
-            forecastContainer.appendChild(card);
+        if (data.result === 'success') {
+            const rate = data.conversion_rates[to];
+            const result = (amount * rate).toFixed(2);
+            
+            // Natijani ko'rsatish
+            resultDiv.textContent = `${amount} ${from} = ${result} ${to}`;
+            updateLastUpdated();
+            resultDiv.classList.remove('loading');
+        } else {
+            throw new Error(data['error-type']);
         }
-    });
+    } catch (error) {
+        handleError(error);
+    }
 }
 
-// Prognoz kartochkasini yaratish
-function createForecastCard(forecast) {
-    const div = document.createElement('div');
-    div.className = 'col';
-    
-    const date = new Date(forecast.date);
-    const dayName = date.toLocaleDateString('uz-UZ', { weekday: 'short' });
-    
-    div.innerHTML = `
-        <div class="forecast-card">
-            <h5>${dayName}</h5>
-            <i class="wi wi-${getWeatherIcon(forecast.day.condition.code)}"></i>
-            <p class="temp">${Math.round(forecast.day.avgtemp_c)}°C</p>
-            <p class="description">${capitalizeFirstLetter(forecast.day.condition.text)}</p>
-        </div>
-    `;
-    
-    return div;
-}
+// Kurs tarixi grafigini yangilash
+async function updateRateHistory() {
+    try {
+        const from = fromSelect.value;
+        const to = toSelect.value;
+        
+        // Oxirgi 7 kun sanalarini olish
+        const dates = Array.from({length: 7}, (_, i) => {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            return date.toISOString().split('T')[0];
+        }).reverse();
 
-// Ob-havo kodi uchun ikonka olish
-function getWeatherIcon(conditionCode) {
-    const iconMap = {
-        1000: 'day-sunny',
-        1003: 'day-cloudy',
-        1006: 'cloudy',
-        1009: 'cloudy',
-        1030: 'fog',
-        1063: 'rain',
-        1066: 'snow',
-        1087: 'thunderstorm',
-        1183: 'rain',
-        1189: 'rain',
-        1195: 'rain',
-        1273: 'thunderstorm',
-        1279: 'snow-thunderstorm'
-    };
-    
-    return iconMap[conditionCode] || 'day-sunny';
-}
-
-// Yordamchi funksiyalar
-function showLoading() {
-    loadingSpinner.classList.add('active');
-}
-
-function hideLoading() {
-    loadingSpinner.classList.remove('active');
-}
-
-function showError(message) {
-    errorMessage.textContent = message;
-    errorModal.show();
-}
-
-function getDayOrNight() {
-    const hour = new Date().getHours();
-    return hour >= 6 && hour < 18 ? 'day' : 'night';
-}
-
-function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
-}
-
-function addFadeInAnimation() {
-    const weatherCard = document.querySelector('.weather-card');
-    weatherCard.style.animation = 'none';
-    weatherCard.offsetHeight; // Trigger reflow
-    weatherCard.style.animation = 'fadeIn 0.5s ease-out';
-}
-
-// LocalStorage bilan ishlash
-function saveToLocalStorage(city) {
-    localStorage.setItem('lastCity', city);
-}
-
-function getLastCity() {
-    return localStorage.getItem('lastCity') || 'Tashkent';
-}
-
-// Geolokatsiya
-function getLocationWeather() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            position => {
-                const { latitude, longitude } = position.coords;
-                getWeatherByCoords(latitude, longitude);
-            },
-            error => {
-                console.error('Geolokatsiya xatosi:', error);
-                getWeatherData(getLastCity());
+        const rates = [];
+        
+        // Har bir sana uchun kurs ma'lumotlarini olish
+        for (const date of dates) {
+            const response = await fetch(
+                `${BASE_URL}/${API_KEY}/history/${from}/${date}`
+            );
+            const data = await response.json();
+            
+            if (data.result === 'success') {
+                rates.push(data.conversion_rates[to]);
+            } else {
+                throw new Error(data['error-type']);
             }
-        );
-    } else {
-        getWeatherData(getLastCity());
+        }
+
+        // Grafikni yangilash
+        updateChart(dates, rates, from, to);
+    } catch (error) {
+        handleError(error);
     }
 }
 
-// Koordinatalar bo'yicha ob-havo
-async function getWeatherByCoords(lat, lon) {
-    try {
-        const response = await fetch(
-            `${BASE_URL}/forecast.json?key=${API_KEY}&q=${lat},${lon}&days=5&lang=uz&aqi=no`
-        );
-        
-        if (!response.ok) {
-            throw new Error('Koordinatalar bo\'yicha ma\'lumot olishda xatolik');
-        }
-        
-        const data = await response.json();
-        updateUI(data);
-        saveToLocalStorage(data.location.name);
-        
-    } catch (error) {
-        showError(error.message);
-        getWeatherData(getLastCity());
-    }
+// Grafikni yangilash funksiyasi
+function updateChart(dates, rates, from, to) {
+    rateChart.data.labels = dates;
+    rateChart.data.datasets[0].data = rates;
+    rateChart.data.datasets[0].label = `${from} dan ${to} ga kurs`;
+    rateChart.update();
 }
+
+// Valyuta o'zgartirilganda
+function handleCurrencyChange() {
+    convertCurrency();
+    updateRateHistory();
+}
+
+// Valyutalarni almashtirish
+function swapCurrencies() {
+    const temp = fromSelect.value;
+    fromSelect.value = toSelect.value;
+    toSelect.value = temp;
+    handleCurrencyChange();
+}
+
+// Oxirgi yangilanish vaqtini ko'rsatish
+function updateLastUpdated() {
+    const now = new Date();
+    lastUpdatedDiv.textContent = `Oxirgi yangilanish: ${now.toLocaleTimeString()}`;
+}
+
+// Xatolarni qayta ishlash
+function handleError(error) {
+    console.error('Xatolik:', error);
+    resultDiv.textContent = 'Xatolik yuz berdi. Qaytadan urinib ko\'ring.';
+    resultDiv.classList.remove('loading');
+    resultDiv.classList.add('error-message');
+}
+
+// Dastlabki yuklash
+handleCurrencyChange();
